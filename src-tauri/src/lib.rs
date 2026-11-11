@@ -187,17 +187,21 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
     let s = store_lock(&state)?;
     let now = Local::now().timestamp_millis();
     let v = s.snapshot(now)?;
-    if v.next_reminder_at.is_none_or(|due| due > now)
-        || v.score <= 0.0
-        || now < v.start
-        || now >= v.end
-        || v.completed
-    {
+    if v.completed {
         return Ok(());
     }
     let day = s.state(&v.local_date)?;
-    let should_crack =
-        v.score >= 100.0 && v.config.as_ref().is_some_and(|c| c.crack_enabled) && !day.cracked;
+    let action = core::reminder_action(
+        now,
+        (v.start, v.end),
+        v.score,
+        v.next_reminder_at,
+        v.config.as_ref().is_some_and(|c| c.crack_enabled) && !day.cracked,
+    );
+    if action == core::ReminderAction::None {
+        return Ok(());
+    }
+    let should_crack = action == core::ReminderAction::Crack;
     // Persist the claim before OS delivery. A crash never replays a burst on restart.
     // OS banner delivery itself is best-effort, not an exactly-once guarantee.
     s.mark_reminder(now, should_crack)?;
@@ -208,9 +212,8 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
         Err(String::new())
     };
     let cracked = should_crack && crack_result.is_ok();
-    if should_crack && !cracked {
-        store_lock(&state)?.clear_crack_claim(&v.local_date)?;
-    }
+    // Keep the daily claim even if the overlay fails. Fall back to the normal
+    // reminder cadence rather than retrying the threshold effect every second.
     let foreground = app
         .get_webview_window("main")
         .is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));

@@ -125,6 +125,36 @@ pub fn interval_ms(score: f64) -> Option<i64> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReminderAction {
+    None,
+    Notify,
+    Crack,
+}
+
+/// The first daily crack is a threshold event, independent of the notification timer.
+/// A crack attempt counts as a reminder, so the caller advances the usual anchor.
+pub fn reminder_action(
+    now: i64,
+    work_time: (i64, i64),
+    score: f64,
+    next_due: Option<i64>,
+    crack_available: bool,
+) -> ReminderAction {
+    let (start, end) = work_time;
+    if now < start || now >= end || !score.is_finite() || score <= 0.0 {
+        return ReminderAction::None;
+    }
+    if score >= 100.0 && crack_available {
+        return ReminderAction::Crack;
+    }
+    if next_due.is_some_and(|due| due <= now) {
+        ReminderAction::Notify
+    } else {
+        ReminderAction::None
+    }
+}
+
 /// Earliest eligible alert, accounting for FUTURE band transitions.
 /// Anchors are advanced only by real reminders, successful drinks, skips or settings.
 /// A zero-score buffer is derived from actual water, never from app launch time.
@@ -175,6 +205,57 @@ mod tests {
             start_time: "09:00".into(),
             end_time: "17:00".into(),
             crack_enabled: true,
+        }
+    }
+
+    #[test]
+    fn first_crack_does_not_wait_for_notification() {
+        let now = 2 * HOUR;
+        assert_eq!(
+            reminder_action(now, (0, 8 * HOUR), 100.0, Some(now + HOUR / 4), true),
+            ReminderAction::Crack
+        );
+        // There may be no next notification before the workday ends.
+        assert_eq!(
+            reminder_action(8 * HOUR - 1, (0, 8 * HOUR), 100.0, None, true),
+            ReminderAction::Crack
+        );
+    }
+
+    #[test]
+    fn crack_respects_work_time_switch_and_daily_deduplication() {
+        let now = 2 * HOUR;
+        for (time, score, available) in [
+            (-1, 100.0, true),
+            (8 * HOUR, 100.0, true),
+            (now, 99.999, true),
+            (now, 0.0, true),
+            (now, 100.0, false),
+        ] {
+            assert_eq!(
+                reminder_action(time, (0, 8 * HOUR), score, None, available),
+                ReminderAction::None
+            );
+        }
+        assert_eq!(
+            reminder_action(now, (0, 8 * HOUR), 100.0, Some(now), false),
+            ReminderAction::Notify
+        );
+    }
+
+    #[test]
+    fn ordinary_reminders_wait_fifteen_minutes_after_first_crack() {
+        let cracked_at = 2 * HOUR;
+        for (now, expected) in [
+            (cracked_at, ReminderAction::None),
+            (cracked_at + HOUR / 4 - 1, ReminderAction::None),
+            (cracked_at + HOUR / 4, ReminderAction::Notify),
+        ] {
+            let due = next_reminder(now, 0, 8 * HOUR, 210000, 0, Some(cracked_at));
+            assert_eq!(
+                reminder_action(now, (0, 8 * HOUR), 100.0, due, false),
+                expected
+            );
         }
     }
 

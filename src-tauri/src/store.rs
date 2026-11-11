@@ -221,15 +221,6 @@ impl Store {
         self.conn.execute("INSERT INTO reminder_days(local_date,anchor,cracked,active) VALUES(?,?,?,1) ON CONFLICT(local_date) DO UPDATE SET anchor=excluded.anchor,cracked=MAX(reminder_days.cracked,excluded.cracked),active=1", params![local_day(now)?, now, cracked]).map_err(|e| e.to_string())?;
         Ok(())
     }
-    pub fn clear_crack_claim(&self, day: &str) -> Result<(), String> {
-        self.conn
-            .execute(
-                "UPDATE reminder_days SET cracked=0 WHERE local_date=?",
-                [day],
-            )
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -252,6 +243,33 @@ mod tests {
             end_time: "17:00".into(),
             crack_enabled: true,
         }
+    }
+
+    #[test]
+    fn late_settings_save_allows_immediate_crack_before_cutoff() {
+        let mut s = store();
+        let now = Local
+            .with_ymd_and_hms(2026, 11, 11, 17, 55, 59)
+            .earliest()
+            .unwrap()
+            .timestamp_millis();
+        let mut c = config();
+        c.end_time = "18:00".into();
+        s.save_config(&c, now).unwrap();
+        let v = s.snapshot(now).unwrap();
+        assert_eq!(v.score, 100.0);
+        assert_eq!(v.next_reminder_at, None);
+        assert_eq!(
+            core::reminder_action(now, (v.start, v.end), v.score, v.next_reminder_at, true),
+            core::ReminderAction::Crack
+        );
+        s.mark_reminder(now, true).unwrap();
+        let state = s.state(&v.local_date).unwrap();
+        assert!(state.cracked);
+        assert_eq!(
+            core::reminder_action(now + 1000, (v.start, v.end), v.score, None, !state.cracked),
+            core::ReminderAction::None
+        );
     }
     #[test]
     fn idempotency_and_exact_completion() {
