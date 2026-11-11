@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "crack-window",
+  "description": "裂纹层只接收本地事件，不访问饮水记录。",
+  "windows": ["crack"],
+  "permissions": ["core:event:default"]
+}

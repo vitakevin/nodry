@@ -1,0 +1,29 @@
+[package]
+name = "stay-hydrated"
+version = "0.1.0"
+description = "别太干巴了：本地喝水提醒"
+authors = ["vitakevin"]
+edition = "2021"
+rust-version = "1.90"
+license = "MIT"
+
+[features]
+qa = []
+
+[lib]
+name = "stay_hydrated_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "macos-private-api", "image-png"] }
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "主窗口只允许本地业务调用与系统通知授权。",
+  "windows": ["main"],
+  "permissions": ["core:default", "notification:default"]
+}
