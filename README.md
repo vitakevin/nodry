@@ -4,6 +4,10 @@
 
 干巴值越高，提醒越频繁。100分时，屏幕边缘会出现一次短暂的干裂效果。
 
+**已验证打包成功：Mac Apple Silicon DMG、Mac Intel DMG、Windows x64 EXE。** 旧构建记录（历史身份已清理，请以当前构建为准）。
+
+想让AI帮你打包？打开 [自行打包指南](docs/BUILDING.md)，复制其中的完整提示词即可。指南包含环境检查、本机打包和Fork后使用GitHub Actions构建的步骤。
+
 ## 怎么使用
 
 1. 打开应用，填写体重（斤）、上班时间和下班时间，点击「保存并开始」。
@@ -58,3 +62,5 @@ npm run tauri build -- --debug --features qa --config src-tauri/tauri.qa.conf.js
 GitHub Actions自动执行前端与Rust测试并生成三个架构的安装包，构建产物保留14天，不自动发布公共Release。
 
 完整业务规则和验收项目见 [开发规格](docs/DEVELOPMENT.md)。
+
+详细打包步骤和可直接交给AI的提示词见 [自行打包指南](docs/BUILDING.md)。
