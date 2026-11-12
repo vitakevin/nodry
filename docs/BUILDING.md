@@ -1,6 +1,6 @@
 # 自行打包
 
-历史版本已实际生成 macOS Apple Silicon、macOS Intel 的DMG，以及Windows x64的EXE安装程序。[Desktop installers #43171280567](https://github.com/vitakevin/stay-hydrated/actions/runs/43171280567)。
+1.0.0已实际生成 macOS Apple Silicon、macOS Intel 的DMG，以及Windows x64的EXE安装程序。[Desktop installers #43175287498](https://github.com/vitakevin/nodry/actions/runs/43175287498)。
 
 不需要AI API Key，不需要后端服务。默认生成测试安装包，Mac使用临时签名，Windows不配置发行签名。本地打包不要求购买开发者证书。
 
