@@ -325,8 +325,13 @@ pub fn run() {
             .build()?;
             overlay.set_ignore_cursor_events(true)?;
 
-            let open =
-                tauri::menu::MenuItem::with_id(app, "open", "打开别太干巴了", true, None::<&str>)?;
+            let open = tauri::menu::MenuItem::with_id(
+                app,
+                "open",
+                "打开应用 / 修改设置",
+                true,
+                None::<&str>,
+            )?;
             let quit =
                 tauri::menu::MenuItem::with_id(app, "quit", "退出并停止提醒", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&open, &quit])?;
@@ -368,7 +373,7 @@ pub fn run() {
                 }
             });
             #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            app.set_activation_policy(tauri::ActivationPolicy::Regular);
             if !configured || !std::env::args().any(|a| a == "--background") {
                 show_main(app.handle());
             }
@@ -399,6 +404,15 @@ pub fn run() {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("应用启动失败，请检查本地数据目录的访问权限");
+        .build(tauri::generate_context!())
+        .expect("应用启动失败，请检查本地数据目录的访问权限")
+        .run(|_app, _event| {
+            // macOS reopens the running app instead of starting a second process.
+            // The crack overlay counts as a visible window, so always restore main,
+            // regardless of Reopen.has_visible_windows.
+            #[cfg(target_os = "macos")]
+            if matches!(_event, tauri::RunEvent::Reopen { .. }) {
+                show_main(_app);
+            }
+        });
 }
