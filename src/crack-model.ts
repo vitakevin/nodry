@@ -14,6 +14,7 @@ export interface EarthCell {
   boundary: readonly Point[];
   outline: readonly Point[];
   color: string;
+  widthBias: number;
 }
 const clamp = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 const distance = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -43,9 +44,9 @@ function buildCells(): EarthCell[] {
   // This pair's shared seam runs through the bottom-right corner, making the
   // first tiny revealed patch cracked too. All other sites stay well spaced.
   const sites: Point[] = [[972, 688], [988, 672]];
-  for (let tries = 0; sites.length < 76 && tries < 10000; tries++) {
+  for (let tries = 0; sites.length < 84 && tries < 10000; tries++) {
     const site: Point = [15 + random() * 970, 15 + random() * 670];
-    if (sites.every(other => distance(site, other) > 58)) sites.push(site);
+    if (sites.every(other => distance(site, other) > 43)) sites.push(site);
   }
   const palette = ['#c9a56c', '#c3a06a', '#c6a16b'];
   return sites.map((center, id) => {
@@ -57,7 +58,7 @@ function buildCells(): EarthCell[] {
         (other[0] ** 2 + other[1] ** 2 - center[0] ** 2 - center[1] ** 2) / 2);
     }
     const outline = boundary.flatMap((a, i) => roughEdge(a, boundary[(i + 1) % boundary.length]).slice(0, -1));
-    return { id, center, boundary, outline, color: palette[Math.floor(random() * palette.length)] };
+    return { id, center, boundary, outline, color: palette[Math.floor(random() * palette.length)], widthBias: 0.55 + random() * 0.45 };
   });
 }
 
@@ -72,9 +73,9 @@ function roughEdge(a: Point, b: Point): Point[] {
   let hash = 2166136261;
   for (const char of key(first) + ':' + key(last)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
   const points: Point[] = [first];
-  for (const fraction of [0.28, 0.64]) {
+  for (const fraction of [0.15, 0.33, 0.52, 0.73, 0.89]) {
     hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
-    const offset = (((hash >>> 0) / 4294967296) - 0.5) * Math.min(5, length * 0.12);
+    const offset = (((hash >>> 0) / 4294967296) - 0.5) * Math.min(13, length * 0.2);
     points.push([first[0] + (last[0] - first[0]) * fraction - (last[1] - first[1]) / length * offset,
       first[1] + (last[1] - first[1]) * fraction + (last[0] - first[0]) / length * offset]);
   }
@@ -104,27 +105,51 @@ export function earthReveal(growth: number): string {
 export function earthGap(cell: EarthCell, growth: number): number {
   const g = clamp(growth);
   const maturity = clamp((earthRadius(g) - distance(cell.center, [1000, 700]) + 40) / 200);
-  return 1.1 * (1 - Math.exp(-500 * g)) + 14.9 * g * maturity;
+  return (1.1 * (1 - Math.exp(-500 * g)) + 14.9 * g * maturity) * cell.widthBias;
 }
 
-export function earthTile(cell: EarthCell, growth: number): string {
+function earthTilePoints(cell: EarthCell, growth: number, lip = 0): Point[] {
   const g = clamp(growth);
-  if (!g) return '';
+  if (!g) return [];
   // Pull the soil inward, revealing an actual gap between filled clay patches.
   // The layout is fixed across scores; drinking closes the very same gaps.
-  const inset = earthGap(cell, g) / 2;
-  return path(cell.outline.map(point => {
-    const scale = Math.max(0, 1 - inset / Math.max(1, distance(point, cell.center)));
+  const inset = earthGap(cell, g) / 2 + lip;
+  return cell.outline.map(point => {
+    const variation = 0.55 + 0.45 * Math.sin(point[0] * 0.081 + point[1] * 0.063) ** 2;
+    const scale = Math.max(0, 1 - inset * variation / Math.max(1, distance(point, cell.center)));
     const x = cell.center[0] + (point[0] - cell.center[0]) * scale;
     const y = cell.center[1] + (point[1] - cell.center[1]) * scale;
     // Soil continues beyond the display; shrinking the outside edges would
     // otherwise leave an artificial dark frame around the entire screen.
     return [Math.abs(point[0]) < 1e-6 ? 0 : Math.abs(point[0] - 1000) < 1e-6 ? 1000 : x,
       Math.abs(point[1]) < 1e-6 ? 0 : Math.abs(point[1] - 700) < 1e-6 ? 700 : y] as Point;
-  }));
+  });
+}
+
+export function earthTile(cell: EarthCell, growth: number, lip = 0): string {
+  return path(earthTilePoints(cell, growth, lip));
+}
+
+// Only the chipped lips facing the light catch it; a uniform pale outline
+// around every polygon would make the ground look like paving or a diagram.
+export function earthRim(cell: EarthCell, growth: number, lip: number): string {
+  const points = earthTilePoints(cell, growth, lip);
+  return points.flatMap((a, i) => {
+    const b = points[(i + 1) % points.length];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const length = Math.hypot(dx, dy);
+    return length > 1e-6 && (0.8 * dx - 0.6 * dy) / length > 0.35
+      ? [`M${a[0]} ${a[1]} L${b[0]} ${b[1]}`] : [];
+  }).join(' ');
 }
 
 export function earthOpacity(growth: number): number {
   const g = clamp(growth);
-  return g ? (0.30 + 0.12 * g) * (1 - Math.exp(-500 * g)) : 0;
+  return g ? (0.32 + 0.20 * g) * (1 - Math.exp(-500 * g)) : 0;
+}
+
+// Fissures stay darker than the translucent soil instead of turning pale gray.
+export function fissureOpacity(growth: number): number {
+  const g = clamp(growth);
+  return (0.70 + 0.15 * g) * (1 - Math.exp(-500 * g));
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { crackGrowth, earthCells, earthRadius, earthReveal, earthGap, earthTile, earthOpacity, type Point } from './crack-model';
+import { crackGrowth, earthCells, earthRadius, earthReveal, earthGap, earthTile, earthOpacity, fissureOpacity, type Point } from './crack-model';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import EarthSurface from './EarthSurface';
@@ -105,6 +105,7 @@ describe('cracked earth surface', () => {
       const high = points(earthTile(cell, 1));
       expect(high.length).toBe(cell.outline.length);
       expect(area(high)).toBeLessThan(area(low));
+      expect(area(points(earthTile(cell, 1, 2.8)))).toBeLessThan(area(high));
       high.forEach((point, i) => {
         const origin = cell.outline[i], center = cell.center;
         const onX = Math.abs(origin[0]) < 1e-6 || Math.abs(origin[0] - 1000) < 1e-6;
@@ -131,10 +132,13 @@ describe('cracked earth surface', () => {
   });
   it('clears at zero and keeps the soil translucent', () => {
     expect(earthOpacity(0)).toBe(0);
+    expect(fissureOpacity(0)).toBe(0);
+    expect(fissureOpacity(1)).toBeLessThanOrEqual(0.85);
+    expect(fissureOpacity(1)).toBeGreaterThan(earthOpacity(1));
     for (let score = 1; score <= 100; score++) {
       const opacity = earthOpacity(crackGrowth(score));
       expect(opacity).toBeGreaterThan(0);
-      expect(opacity).toBeLessThanOrEqual(0.42);
+      expect(opacity).toBeLessThanOrEqual(0.52);
       expect(earthRadius(crackGrowth(score))).toBeGreaterThan(earthRadius(crackGrowth(score - 1)));
     }
     expect(renderToStaticMarkup(createElement(EarthSurface, { growth: 0 }))).not.toContain('<path');
@@ -156,6 +160,8 @@ describe('cracked earth surface', () => {
     expect(ids).toHaveLength(2);
     expect(new Set(ids).size).toBe(2);
     expect(markup.match(/fill="#c[369]/g)!.length).toBe(earthCells.length * 2);
+    expect(markup).toContain('<pattern');
+    expect(markup).toContain('fill-rule="evenodd"');
     expect(markup).not.toContain('stroke-dash');
   });
 });
