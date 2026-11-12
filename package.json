@@ -1,6 +1,6 @@
 {
-  "name": "stay-hydrated",
-  "version": "0.2.4",
+  "name": "nodry",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {

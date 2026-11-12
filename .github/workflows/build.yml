@@ -51,7 +51,7 @@ jobs:
       - run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - uses: actions/upload-artifact@v4
         with:
-          name: stay-hydrated-${{ matrix.target }}-test-build
+          name: nodry-${{ matrix.target }}-test-build
           retention-days: 14
           if-no-files-found: error
           path: |

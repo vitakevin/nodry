@@ -1,7 +1,7 @@
 [package]
 name = "stay-hydrated"
-version = "0.2.4"
-description = "别太干巴了：本地喝水提醒"
+version = "1.0.0"
+description = "NoDry · 别太干巴了：本地喝水提醒"
 authors = ["vitakevin"]
 edition = "2021"
 rust-version = "1.90"

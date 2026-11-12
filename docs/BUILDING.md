@@ -1,6 +1,6 @@
 # 自行打包
 
-本项目已实际生成 macOS Apple Silicon、macOS Intel 的DMG，以及Windows x64的EXE安装程序。[Desktop installers #43171280567](https://github.com/vitakevin/stay-hydrated/actions/runs/43171280567)。
+历史版本已实际生成 macOS Apple Silicon、macOS Intel 的DMG，以及Windows x64的EXE安装程序。[Desktop installers #43171280567](https://github.com/vitakevin/stay-hydrated/actions/runs/43171280567)。
 
 不需要AI API Key，不需要后端服务。默认生成测试安装包，Mac使用临时签名，Windows不配置发行签名。本地打包不要求购买开发者证书。
 
@@ -9,7 +9,7 @@
 把下面整段发送给能访问本地终端的AI开发工具：
 
 ```text
-请将 https://github.com/vitakevin/stay-hydrated.git 克隆到本地，并根据当前电脑的操作系统生成“别太干巴了”的安装包。
+请将 https://github.com/vitakevin/nodry.git 克隆到本地，并根据当前电脑的操作系统生成“别太干巴了”的安装包。
 
 先阅读仓库的 AGENTS.md、docs/BUILDING.md 和 docs/VERIFICATION.md。
 检查当前电脑的操作系统与处理器架构，以及 Node.js 22、Rust stable 和平台原生编译环境。
@@ -46,8 +46,8 @@ macOS还需要Xcode或Xcode Command Line Tools，检查 `xcode-select -p`。Wind
 ## 2. 获取代码与验证
 
 ```sh
-git clone https://github.com/vitakevin/stay-hydrated.git
-cd stay-hydrated
+git clone https://github.com/vitakevin/nodry.git
+cd nodry
 npm ci
 npm test
 npm run build

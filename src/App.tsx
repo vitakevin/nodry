@@ -120,7 +120,7 @@ export default function App() {
   return <main className={`app ${intensity}`}>
     {bridge.demo && <div className="demo-banner">演示模式 · 独立数据，不发送真实提醒</div>}
     {runtime?.qa && <div className="demo-banner">测试构建 · 独立本地数据</div>}
-    <header className="header"><div className="brand"><div className="brand-mark"><Drop small/></div><div><h1>别太干巴了</h1><p>STAY HYDRATED</p></div></div>
+    <header className="header"><div className="brand"><div className="brand-mark"><Drop small/></div><div><h1>别太干巴了</h1><p>NODRY</p></div></div>
       {snapshot?.config && !settings && <button className="icon-button" type="button" aria-label="设置" title="设置" disabled={busy} onClick={()=>setSettings(true)}><SettingsIcon/></button>}
     </header>
     {!snapshot ? <div className="loading">{error ? <><p className="error" role="alert">{error}</p><button type="button" className="secondary" onClick={()=>void refresh()}>重试</button></> : '正在打开今天的水分计划…'}</div>
