@@ -4,7 +4,7 @@
 
 干巴值越高，提醒越频繁。半透明土色从右下角随分数平滑铺开，1分起可见；不规则土块之间的裂缝随分数升高逐渐张开，分数越高变化越快。喝水降分后，裂缝合拢、土色退回右下角。
 
-**已验证打包成功：Mac Apple Silicon DMG、Mac Intel DMG、Windows x64 EXE。** 旧构建记录（历史身份已清理，请以当前构建为准）。
+**已验证打包成功：Mac Apple Silicon DMG、Mac Intel DMG、Windows x64 EXE。** [Desktop installers #43171280567](https://github.com/vitakevin/stay-hydrated/actions/runs/43171280567)。
 
 想让AI帮你打包？打开 [自行打包指南](docs/BUILDING.md)，复制其中的完整提示词即可。指南包含环境检查、本机打包和Fork后使用GitHub Actions构建的步骤。
 
