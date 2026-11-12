@@ -7,135 +7,124 @@ export function crackGrowth(score: number): number {
     + Math.max(0, Math.min(s - 50, 30)) * 3 + Math.max(0, s - 80) * 4) / 250;
 }
 
-type Point = readonly [number, number];
-interface Branch { points: readonly Point[]; children?: readonly { at: number; branch: Branch }[] }
-export interface CrackPath { d: string; start: number; length: number; points: readonly Point[]; depth: number }
-
-// One fixed connected tree. Every branch starts at a real point on its parent;
-// its arrival distance includes the parent's length up to that point.
-const tree: Branch = {
-  points: [[999,699],[982,684],[968,660],[939,648],[924,618],[891,607],[872,574],[835,559],[812,523],[776,510],[754,475],[715,457],[692,418],[653,400],[629,362],[588,346],[561,303],[520,286],[492,246],[448,229],[419,186],[374,166],[341,125],[291,110],[256,65]],
-  children: [
-    { at: 2, branch: { points: [[968,660],[937,672],[916,659],[883,669],[859,650],[821,658],[794,636],[752,641],[717,615],[669,619],[633,592],[584,590],[540,561],[490,558],[443,528],[390,523],[339,489],[283,482],[227,443],[167,432]], children: [
-      { at: 4, branch: { points: [[859,650],[841,626],[813,616],[802,585],[776,574]] } },
-      { at: 8, branch: { points: [[717,615],[695,648],[657,658],[639,684],[601,697]] } },
-      { at: 12, branch: { points: [[540,561],[521,528],[485,515],[471,481],[435,465]] } },
-      { at: 16, branch: { points: [[339,489],[317,516],[282,523],[265,551],[227,560]] } },
-    ] } },
-    { at: 4, branch: { points: [[924,618],[936,586],[920,560],[930,527],[914,499],[924,460],[904,429],[913,387],[891,354],[901,309],[876,270],[884,222],[856,183],[860,134],[831,90],[828,37],[804,1]], children: [
-      { at: 3, branch: { points: [[930,527],[962,513],[972,481],[999,467]] } },
-      { at: 6, branch: { points: [[904,429],[872,411],[862,379],[829,363],[813,328]] } },
-      { at: 10, branch: { points: [[876,270],[908,250],[916,217],[949,195],[962,160],[993,140]] } },
-      { at: 13, branch: { points: [[860,134],[827,119],[815,85],[779,69],[766,32]] } },
-    ] } },
-    { at: 7, branch: { points: [[835,559],[841,522],[821,496],[829,460],[807,432],[812,393],[785,364],[790,323],[761,294],[764,251],[735,220],[735,176],[701,146],[696,100],[658,70],[647,23]], children: [
-      { at: 5, branch: { points: [[812,393],[846,372],[853,339],[884,318]] } },
-      { at: 10, branch: { points: [[735,220],[702,210],[682,178],[645,168],[625,135]] } },
-    ] } },
-    { at: 11, branch: { points: [[715,457],[680,468],[655,450],[617,460],[587,438],[546,446],[514,421],[471,424],[436,396],[391,394],[354,362],[307,355],[267,319],[218,309],[173,271],[122,254],[73,217]], children: [
-      { at: 4, branch: { points: [[587,438],[568,473],[531,487],[516,521]] } },
-      { at: 9, branch: { points: [[391,394],[382,356],[350,338],[340,298],[306,277]] } },
-      { at: 13, branch: { points: [[218,309],[195,340],[159,348],[139,381],[101,389]] } },
-    ] } },
-    { at: 16, branch: { points: [[561,303],[567,266],[543,239],[546,198],[515,169],[512,127],[477,97],[468,52],[431,22],[427,1]], children: [
-      { at: 4, branch: { points: [[515,169],[547,148],[554,112],[586,90],[591,53]] } },
-    ] } },
-    { at: 20, branch: { points: [[419,186],[383,200],[355,181],[316,190],[285,168],[243,173],[209,147],[165,146],[128,116],[81,111],[42,78],[1,65]] } },
-  ],
-};
-
-function flatten(branch: Branch, start: number, depth = 0): CrackPath[] {
-  const distances = [0];
-  for (let i = 1; i < branch.points.length; i++) {
-    distances.push(distances[i - 1] + Math.hypot(branch.points[i][0] - branch.points[i-1][0], branch.points[i][1] - branch.points[i-1][1]));
-  }
-  const d = branch.points.map(([x,y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join(' ');
-  return [{ d, start, length: distances.at(-1)!, points: branch.points, depth }, ...(branch.children ?? []).flatMap(child => flatten(child.branch, start + distances[child.at], depth + 1))];
+export type Point = readonly [number, number];
+export interface EarthCell {
+  id: number;
+  center: Point;
+  boundary: readonly Point[];
+  outline: readonly Point[];
+  color: string;
 }
-export const crackPaths = flatten(tree, 0);
-export const maxCrackDistance = Math.max(...crackPaths.map(p => p.start + p.length));
-export function pathReveal(path: CrackPath, growth: number): number {
-  return Math.max(0, Math.min(1, (growth * maxCrackDistance - path.start) / path.length));
-}
+const clamp = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+const distance = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const path = (points: readonly Point[]) => points.length < 3 ? ''
+  : points.map(([x, y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join(' ') + ' Z';
 
-// Draw the actual prefix instead of normalized SVG dashes: WebKit combines
-// pathLength, dash offsets and non-scaling strokes differently on Retina screens.
-export function visibleCrackPath(path: CrackPath, growth: number): string {
-  let remaining = Math.max(0, growth * maxCrackDistance - path.start);
-  if (remaining <= 0) return '';
-  if (remaining >= path.length) return path.d;
-  let d = `M${path.points[0][0]} ${path.points[0][1]}`;
-  for (let i = 1; i < path.points.length; i++) {
-    const [x,y] = path.points[i-1], [endX,endY] = path.points[i];
-    const length = Math.hypot(endX-x,endY-y);
-    if (remaining < length) {
-      const t = remaining/length;
-      return `${d} L${x+(endX-x)*t} ${y+(endY-y)*t}`;
+// Clip a convex polygon to a Voronoi half-plane. Cells share their boundaries;
+// unlike a branching tree, these edges form closed patches of earth.
+function clip(points: readonly Point[], nx: number, ny: number, limit: number): Point[] {
+  const result: Point[] = [];
+  points.forEach((a, i) => {
+    const b = points[(i + 1) % points.length];
+    const da = a[0] * nx + a[1] * ny - limit;
+    const db = b[0] * nx + b[1] * ny - limit;
+    if (da <= 1e-8) result.push(a);
+    if ((da < 0 && db > 0) || (da > 0 && db < 0)) {
+      const t = da / (da - db);
+      result.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
     }
-    d += ` L${endX} ${endY}`;
-    remaining -= length;
-  }
-  return d;
-}
-
-// Width shares the animated growth value with length. The small initial term
-// keeps a one-point crack visible; both terms are continuous down to zero.
-// Units follow the 1000 x 700 drawing, so the whole fracture scales together.
-export function crackWidth(path: CrackPath, growth: number, distance = 0): number {
-  if (!Number.isFinite(growth) || !Number.isFinite(distance)) return 0;
-  const g = Math.max(0, Math.min(1, growth));
-  const revealed = Math.max(0, Math.min(path.length, g * maxCrackDistance - path.start));
-  if (revealed <= 0 || distance < 0 || distance >= revealed) return 0;
-  const width = 1.1 * (1 - Math.exp(-500 * g)) + 14.9 * g;
-  return width * 0.66 ** path.depth * (1 - distance / revealed) ** 0.55;
-}
-
-// A filled ribbon, rather than a thicker uniform stroke: the established trunk
-// opens wider while branches and newly reached tips remain fine. Geometric
-// prefixes keep the same Retina WebKit behavior as the original centerline.
-export function visibleCrackShape(path: CrackPath, growth: number): string {
-  if (!Number.isFinite(growth)) return '';
-  let remaining = Math.max(0, Math.min(path.length, Math.min(1, growth) * maxCrackDistance - path.start));
-  if (remaining <= 0) return '';
-  const points: Point[] = [path.points[0]];
-  const distances = [0];
-  let traveled = 0;
-  for (let i = 1; i < path.points.length && remaining > 0; i++) {
-    const [x, y] = path.points[i - 1], [endX, endY] = path.points[i];
-    const length = Math.hypot(endX - x, endY - y);
-    if (!length) continue;
-    const visible = Math.min(length, remaining);
-    const steps = Math.ceil(visible / 8);
-    for (let step = 1; step <= steps; step++) {
-      const distance = visible * step / steps;
-      const point: Point = [x + (endX - x) * distance / length, y + (endY - y) * distance / length];
-      // At an exact junction floating-point subtraction can leave a fraction
-      // of a pixel. Do not create a zero-length edge with an undefined normal.
-      const previous = points.at(-1)!;
-      if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 1e-8) continue;
-      points.push(point);
-      distances.push(traveled + distance);
-    }
-    traveled += visible;
-    remaining -= visible;
-  }
-  if (points.length < 2) return '';
-  const normal = (a: Point, b: Point): Point => {
-    const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    return [-(b[1] - a[1]) / length, (b[0] - a[0]) / length];
-  };
-  const left: Point[] = [], right: Point[] = [];
-  points.forEach((point, i) => {
-    const before = normal(points[Math.max(0, i - 1)], points[Math.max(1, i)]);
-    const after = normal(points[Math.min(i, points.length - 2)], points[Math.min(i + 1, points.length - 1)]);
-    const sumX = before[0] + after[0], sumY = before[1] + after[1];
-    const sumLength = Math.hypot(sumX, sumY);
-    const direction: Point = sumLength > 1e-8 ? [sumX / sumLength, sumY / sumLength] : after;
-    const projection = direction[0] * after[0] + direction[1] * after[1];
-    const halfWidth = crackWidth(path, growth, distances[i]) / 2;
-    const offset = halfWidth / Math.max(0.4, projection);
-    left.push([point[0] + direction[0] * offset, point[1] + direction[1] * offset]);
-    right.push([point[0] - direction[0] * offset, point[1] - direction[1] * offset]);
   });
-  return [...left, ...right.reverse()].map(([x, y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join(' ') + ' Z';
+  return result;
+}
+
+function buildCells(): EarthCell[] {
+  let state = 71423;
+  const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
+  // This pair's shared seam runs through the bottom-right corner, making the
+  // first tiny revealed patch cracked too. All other sites stay well spaced.
+  const sites: Point[] = [[972, 688], [988, 672]];
+  for (let tries = 0; sites.length < 76 && tries < 10000; tries++) {
+    const site: Point = [15 + random() * 970, 15 + random() * 670];
+    if (sites.every(other => distance(site, other) > 58)) sites.push(site);
+  }
+  const palette = ['#c9a56c', '#c3a06a', '#c6a16b'];
+  return sites.map((center, id) => {
+    let boundary: Point[] = [[0, 0], [1000, 0], [1000, 700], [0, 700]];
+    for (const other of sites) {
+      if (other === center) continue;
+      const nx = other[0] - center[0], ny = other[1] - center[1];
+      boundary = clip(boundary, nx, ny,
+        (other[0] ** 2 + other[1] ** 2 - center[0] ** 2 - center[1] ** 2) / 2);
+    }
+    const outline = boundary.flatMap((a, i) => roughEdge(a, boundary[(i + 1) % boundary.length]).slice(0, -1));
+    return { id, center, boundary, outline, color: palette[Math.floor(random() * palette.length)] };
+  });
+}
+
+// Slightly uneven shared edges avoid a neat paving-stone pattern. The same
+// canonical endpoints always yield the same edge in both adjacent cells.
+function roughEdge(a: Point, b: Point): Point[] {
+  const key = (p: Point) => `${Math.round(p[0] * 1000)},${Math.round(p[1] * 1000)}`;
+  const reverse = key(a) > key(b), first = reverse ? b : a, last = reverse ? a : b;
+  const length = distance(first, last);
+  if (length < 1e-6 || (Math.abs(a[0] - b[0]) < 1e-6 && (Math.abs(a[0]) < 1e-6 || Math.abs(a[0] - 1000) < 1e-6))
+    || (Math.abs(a[1] - b[1]) < 1e-6 && (Math.abs(a[1]) < 1e-6 || Math.abs(a[1] - 700) < 1e-6))) return [a, b];
+  let hash = 2166136261;
+  for (const char of key(first) + ':' + key(last)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  const points: Point[] = [first];
+  for (const fraction of [0.28, 0.64]) {
+    hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
+    const offset = (((hash >>> 0) / 4294967296) - 0.5) * Math.min(5, length * 0.12);
+    points.push([first[0] + (last[0] - first[0]) * fraction - (last[1] - first[1]) / length * offset,
+      first[1] + (last[1] - first[1]) * fraction + (last[0] - first[0]) / length * offset]);
+  }
+  points.push(last);
+  return reverse ? points.reverse() : points;
+}
+
+export const earthCells = buildCells();
+
+export function earthRadius(growth: number): number {
+  const g = clamp(growth);
+  return 1350 * g + 24 * (1 - Math.exp(-250 * g));
+}
+
+export function earthReveal(growth: number): string {
+  const radius = earthRadius(growth);
+  if (!radius) return '';
+  const points: Point[] = [[1000, 700]];
+  for (let i = 0; i <= 32; i++) {
+    const angle = Math.PI + i / 32 * Math.PI / 2;
+    const uneven = 1 + 0.025 * Math.sin(i / 32 * Math.PI * 6) + 0.018 * Math.sin(i / 32 * Math.PI * 14);
+    points.push([1000 + Math.cos(angle) * radius * uneven, 700 + Math.sin(angle) * radius * uneven]);
+  }
+  return path(points);
+}
+
+export function earthGap(cell: EarthCell, growth: number): number {
+  const g = clamp(growth);
+  const maturity = clamp((earthRadius(g) - distance(cell.center, [1000, 700]) + 40) / 200);
+  return 1.1 * (1 - Math.exp(-500 * g)) + 14.9 * g * maturity;
+}
+
+export function earthTile(cell: EarthCell, growth: number): string {
+  const g = clamp(growth);
+  if (!g) return '';
+  // Pull the soil inward, revealing an actual gap between filled clay patches.
+  // The layout is fixed across scores; drinking closes the very same gaps.
+  const inset = earthGap(cell, g) / 2;
+  return path(cell.outline.map(point => {
+    const scale = Math.max(0, 1 - inset / Math.max(1, distance(point, cell.center)));
+    const x = cell.center[0] + (point[0] - cell.center[0]) * scale;
+    const y = cell.center[1] + (point[1] - cell.center[1]) * scale;
+    // Soil continues beyond the display; shrinking the outside edges would
+    // otherwise leave an artificial dark frame around the entire screen.
+    return [Math.abs(point[0]) < 1e-6 ? 0 : Math.abs(point[0] - 1000) < 1e-6 ? 1000 : x,
+      Math.abs(point[1]) < 1e-6 ? 0 : Math.abs(point[1] - 700) < 1e-6 ? 700 : y] as Point;
+  }));
+}
+
+export function earthOpacity(growth: number): number {
+  const g = clamp(growth);
+  return g ? (0.30 + 0.12 * g) * (1 - Math.exp(-500 * g)) : 0;
 }

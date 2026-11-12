@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { crackGrowth, crackPaths, maxCrackDistance, pathReveal, visibleCrackPath, crackWidth, visibleCrackShape } from './crack-model';
+import { crackGrowth, earthCells, earthRadius, earthReveal, earthGap, earthTile, earthOpacity, type Point } from './crack-model';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import EarthSurface from './EarthSurface';
 
 describe('continuous crack growth', () => {
   it('starts at one point and preserves fractional score changes', () => {
@@ -25,132 +28,134 @@ describe('continuous crack growth', () => {
     for (const score of [-10, NaN, Infinity, -Infinity]) expect(crackGrowth(score)).toBe(0);
     expect(crackGrowth(101)).toBe(1);
   });
-  it('begins at the bottom-right and reveals branches only after their junctions', () => {
-    expect(crackPaths[0].d.startsWith('M999 699')).toBe(true);
-    expect(crackPaths[0].start).toBe(0);
-    expect(pathReveal(crackPaths[0], crackGrowth(1))).toBeGreaterThan(0);
-    expect(crackPaths.slice(1).every(p => pathReveal(p, crackGrowth(1)) === 0)).toBe(true);
-    for (let i = 1; i < crackPaths.length; i++) {
-      const path = crackPaths[i];
-      const origin = path.d.match(/^M([\d.]+) ([\d.]+)/)!.slice(1).map(Number);
-      const connected = crackPaths.slice(0, i).some(parent => {
-        const points = [...parent.d.matchAll(/[ML]([\d.]+) ([\d.]+)/g)].map(m => [Number(m[1]), Number(m[2])]);
-        let distance = parent.start;
-        return points.some(([x,y], j) => {
-          if (j) distance += Math.hypot(x-points[j-1][0],y-points[j-1][1]);
-          return x===origin[0] && y===origin[1] && Math.abs(distance-path.start)<1e-7;
-        });
-      });
-      expect(connected, path.d).toBe(true);
-      expect(pathReveal(path, path.start/maxCrackDistance)).toBeCloseTo(0, 10);
-    }
-  });
-  it('renders only a geometric prefix, including on Retina WebKit without SVG dash support', () => {
-    expect(crackPaths.every(p => visibleCrackPath(p, 0) === '')).toBe(true);
-    const first = visibleCrackPath(crackPaths[0], crackGrowth(1));
-    expect(first.startsWith('M999 699 L')).toBe(true);
-    expect(first.match(/L/g)).toHaveLength(1);
-    expect(crackPaths.slice(1).every(p => visibleCrackPath(p, crackGrowth(1)) === '')).toBe(true);
-    for (const path of crackPaths) {
-      expect(visibleCrackPath(path, 1)).toBe(path.d);
-      expect(visibleCrackPath(path, Math.max(0, path.start-1)/maxCrackDistance)).toBe('');
-    }
-  });
-  it('retracts on exactly the same paths as the score drops, to a fully clear screen', () => {
-    for (const p of crackPaths) {
-      expect(pathReveal(p, 0)).toBe(0);
-      expect(pathReveal(p, 1)).toBeCloseTo(1, 10);
-      let previous = 1;
-      for (let score = 100; score >= 0; score--) {
-        const visible = pathReveal(p, crackGrowth(score));
-        expect(visible).toBeLessThanOrEqual(previous);
-        previous = visible;
-      }
-      expect(previous).toBe(0);
-    }
-  });
 });
 
-describe('continuous crack width', () => {
-  const trunk = crackPaths[0];
-  it('widens at every score and fractional change, without band jumps', () => {
-    expect(crackWidth(trunk, 0)).toBe(0);
-    expect(crackWidth(trunk, crackGrowth(1))).toBeGreaterThan(0.9);
-    for (let score = 1; score <= 100; score++) {
-      expect(crackWidth(trunk, crackGrowth(score))).toBeGreaterThan(crackWidth(trunk, crackGrowth(score - 1)));
+const points = (d: string): Point[] => [...d.matchAll(/[ML](-?[\d.e+-]+) (-?[\d.e+-]+)/g)].map(m => [Number(m[1]), Number(m[2])]);
+const area = (polygon: readonly Point[]) => Math.abs(polygon.reduce((sum, a, i) => {
+  const b = polygon[(i + 1) % polygon.length];
+  return sum + a[0] * b[1] - b[0] * a[1];
+}, 0)) / 2;
+function contains(polygon: readonly Point[], x: number, y: number): boolean {
+  let inside = false;
+  polygon.forEach((a, i) => {
+    const b = polygon[(i + 1) % polygon.length];
+    if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  });
+  return inside;
+}
+
+describe('cracked earth surface', () => {
+  it('partitions the surface into closed irregular soil patches', () => {
+    expect(earthCells.length).toBeGreaterThan(50);
+    expect(earthCells.reduce((sum, cell) => sum + area(cell.boundary), 0)).toBeCloseTo(700000, 3);
+    expect(earthCells.every(cell => cell.boundary.length >= 3 && contains(cell.boundary, ...cell.center))).toBe(true);
+    const areas = earthCells.map(cell => area(cell.boundary));
+    expect(Math.max(...areas) / Math.min(...areas)).toBeGreaterThan(2);
+    expect(new Set(earthCells.map(cell => cell.boundary.length)).size).toBeGreaterThan(2);
+  });
+  it('forms a shared network of edges instead of disconnected branches', () => {
+    const edges = new Map<string, number>();
+    const key = (p: Point) => p.map(n => n.toFixed(3)).join(',');
+    for (const cell of earthCells) cell.outline.forEach((a, i) => {
+      const b = cell.outline[(i + 1) % cell.outline.length];
+      const edge = [key(a), key(b)].sort().join(':');
+      edges.set(edge, (edges.get(edge) ?? 0) + 1);
+    });
+    expect([...edges.values()].filter(count => count === 2).length).toBeGreaterThan(100);
+    expect([...edges.values()].every(count => count <= 2)).toBe(true);
+    for (const [edge, count] of edges) {
+      if (count === 2) continue;
+      const [a, b] = edge.split(':').map(p => p.split(',').map(Number));
+      expect((a[0] === b[0] && [0, 1000].includes(a[0])) || (a[1] === b[1] && [0, 700].includes(a[1])), edge).toBe(true);
     }
-    expect(crackWidth(trunk, crackGrowth(50.01))).toBeGreaterThan(crackWidth(trunk, crackGrowth(50)));
+  });
+  it('starts at the bottom-right from one point and reaches the whole surface at 100', () => {
+    expect(earthReveal(0)).toBe('');
+    const tiny = points(earthReveal(crackGrowth(1)));
+    expect(tiny[0]).toEqual([1000, 700]);
+    expect(contains(tiny, 999, 699)).toBe(true);
+    expect(tiny.every(([x, y]) => x > 970 && y > 670)).toBe(true);
+    const full = points(earthReveal(1));
+    for (const [x, y] of [[1, 1], [999, 1], [1, 699], [999, 699]]) expect(contains(full, x, y)).toBe(true);
+    expect(earthRadius(crackGrowth(1.01))).toBeGreaterThan(earthRadius(crackGrowth(1)));
+  });
+  it('expands coverage and opens gaps smoothly across all score boundaries', () => {
     for (const boundary of [20, 50, 80]) {
-      expect(crackWidth(trunk, crackGrowth(boundary - 1e-7))).toBeCloseTo(crackWidth(trunk, crackGrowth(boundary + 1e-7)), 6);
+      const before = crackGrowth(boundary - 1e-7), after = crackGrowth(boundary + 1e-7);
+      expect(earthRadius(before)).toBeCloseTo(earthRadius(after), 4);
+      for (const cell of earthCells) expect(earthGap(cell, before)).toBeCloseTo(earthGap(cell, after), 5);
     }
-    const steps = [19, 30, 60, 90].map(s => crackWidth(trunk, crackGrowth(s + 1)) - crackWidth(trunk, crackGrowth(s)));
+    for (const cell of earthCells) {
+      let previous = 0;
+      for (let score = 0; score <= 100; score++) {
+        const width = earthGap(cell, crackGrowth(score));
+        expect(width).toBeGreaterThanOrEqual(previous);
+        previous = width;
+      }
+    }
+    const corner = earthCells[0];
+    const steps = [19, 40, 70, 90].map(s => earthGap(corner, crackGrowth(s + 1)) - earthGap(corner, crackGrowth(s)));
     expect(steps[1]).toBeGreaterThan(steps[0]);
     expect(steps[2]).toBeGreaterThan(steps[1]);
     expect(steps[3]).toBeGreaterThan(steps[2]);
-    expect(crackWidth(trunk, 1)).toBeCloseTo(16);
   });
-  it('keeps branches narrower than the trunk and tapers each tip to zero', () => {
-    const branch = crackPaths.find(p => p.depth === 1)!;
-    const twig = crackPaths.find(p => p.depth === 2)!;
-    expect(crackWidth(branch, 1)).toBeLessThan(crackWidth(trunk, 1));
-    expect(crackWidth(twig, 1)).toBeLessThan(crackWidth(branch, 1));
-    for (const path of crackPaths) {
-      const revealed = pathReveal(path, 0.7) * path.length;
-      if (revealed <= 0) continue;
-      expect(crackWidth(path, 0.7, revealed * 0.9)).toBeLessThan(crackWidth(path, 0.7, revealed * 0.5));
-      expect(crackWidth(path, 0.7, revealed)).toBeCloseTo(0, 6);
-      expect(crackWidth(path, 1, path.length)).toBe(0);
+  it('opens gaps by moving clay inward and closes them along the same geometry', () => {
+    for (const cell of earthCells) {
+      const low = points(earthTile(cell, crackGrowth(20)));
+      const high = points(earthTile(cell, 1));
+      expect(high.length).toBe(cell.outline.length);
+      expect(area(high)).toBeLessThan(area(low));
+      high.forEach((point, i) => {
+        const origin = cell.outline[i], center = cell.center;
+        const onX = Math.abs(origin[0]) < 1e-6 || Math.abs(origin[0] - 1000) < 1e-6;
+        const onY = Math.abs(origin[1]) < 1e-6 || Math.abs(origin[1] - 700) < 1e-6;
+        if (onX) expect(point[0]).toBeCloseTo(origin[0], 6);
+        if (onY) expect(point[1]).toBeCloseTo(origin[1], 6);
+        expect(Math.hypot(point[0] - center[0], point[1] - center[1])).toBeLessThanOrEqual(Math.hypot(low[i][0] - center[0], low[i][1] - center[1]));
+        if (!onX && !onY) expect((point[0] - center[0]) * (origin[1] - center[1]) - (point[1] - center[1]) * (origin[0] - center[0])).toBeCloseTo(0, 7);
+      });
+      expect(earthTile(cell, 0)).toBe('');
     }
   });
-  it('narrows existing geometry on drinking and clears at zero', () => {
-    for (const path of crackPaths) {
-      for (const distance of [0, path.length * 0.2, path.length * 0.8]) {
-        let previous = Infinity;
-        for (let score = 100; score >= 0; score--) {
-          const width = crackWidth(path, crackGrowth(score), distance);
-          expect(width).toBeLessThanOrEqual(previous);
-          previous = width;
-        }
-        expect(previous).toBe(0);
+  it('keeps a stable layout and finite geometry through every point and fractional changes', () => {
+    for (const score of [0.001, 1, 1.01, 20, 20.01, 50, 50.01, 80, 80.01, 100]) {
+      const growth = crackGrowth(score);
+      expect(earthReveal(growth)).not.toMatch(/NaN|Infinity/);
+      for (const cell of earthCells) {
+        const d = earthTile(cell, growth);
+        expect(d.endsWith(' Z')).toBe(true);
+        expect(d).not.toMatch(/NaN|Infinity/);
+        expect(area(points(d))).toBeGreaterThan(0);
       }
     }
   });
-  it('draws connected, finite filled ribbons only on the reached prefix', () => {
-    for (const path of crackPaths) {
-      expect(visibleCrackShape(path, 0)).toBe('');
-      expect(visibleCrackShape(path, Math.max(0, path.start - 1) / maxCrackDistance)).toBe('');
-      for (const growth of [crackGrowth(1), 0.08, 0.32, 0.68, 1]) {
-        const shape = visibleCrackShape(path, growth);
-        if (!shape) continue;
-        expect(shape.endsWith(' Z')).toBe(true);
-        expect(shape).not.toMatch(/NaN|Infinity/);
-        const outline = [...shape.matchAll(/[ML](-?[\d.e+-]+) (-?[\d.e+-]+)/g)].map(m => [Number(m[1]), Number(m[2])]);
-        const tip = outline[outline.length / 2 - 1];
-        const centerline = [...visibleCrackPath(path, growth).matchAll(/[ML]([\d.]+) ([\d.]+)/g)];
-        expect(tip[0]).toBeCloseTo(Number(centerline.at(-1)![1]), 6);
-        expect(tip[1]).toBeCloseTo(Number(centerline.at(-1)![2]), 6);
-      }
+  it('clears at zero and keeps the soil translucent', () => {
+    expect(earthOpacity(0)).toBe(0);
+    for (let score = 1; score <= 100; score++) {
+      const opacity = earthOpacity(crackGrowth(score));
+      expect(opacity).toBeGreaterThan(0);
+      expect(opacity).toBeLessThanOrEqual(0.42);
+      expect(earthRadius(crackGrowth(score))).toBeGreaterThan(earthRadius(crackGrowth(score - 1)));
     }
-    expect(crackPaths.slice(1).every(p => visibleCrackShape(p, crackGrowth(1)) === '')).toBe(true);
+    expect(renderToStaticMarkup(createElement(EarthSurface, { growth: 0 }))).not.toContain('<path');
   });
-  it('bounds invalid and out-of-range inputs', () => {
-    for (const growth of [NaN, Infinity, -Infinity, -1]) {
-      expect(crackWidth(trunk, growth)).toBe(0);
-      expect(visibleCrackShape(trunk, growth)).toBe('');
+  it('safely handles invalid inputs and caps the effect', () => {
+    for (const value of [-10, NaN, Infinity, -Infinity]) {
+      expect(earthReveal(value)).toBe('');
+      expect(earthOpacity(value)).toBe(0);
+      expect(earthTile(earthCells[0], value)).toBe('');
+      expect(earthGap(earthCells[0], value)).toBe(0);
     }
-    expect(crackWidth(trunk, 2)).toBe(crackWidth(trunk, 1));
-    expect(visibleCrackShape(trunk, 2)).toBe(visibleCrackShape(trunk, 1));
-    expect(crackWidth(trunk, 1, NaN)).toBe(0);
+    expect(earthReveal(2)).toBe(earthReveal(1));
+    expect(earthTile(earthCells[0], 2)).toBe(earthTile(earthCells[0], 1));
   });
-  it('never produces invalid normals at exact junctions or segment ends', () => {
-    for (const path of crackPaths) {
-      let distance = path.start;
-      for (let i = 0; i < path.points.length; i++) {
-        if (i) distance += Math.hypot(path.points[i][0] - path.points[i - 1][0], path.points[i][1] - path.points[i - 1][1]);
-        for (const delta of [-1e-12, 0, 1e-12]) {
-          expect(visibleCrackShape(path, (distance + delta) / maxCrackDistance)).not.toMatch(/NaN|Infinity/);
-        }
-      }
-    }
+  it('renders actual filled soil cells with independent clip IDs for multiple surfaces', () => {
+    const markup = renderToStaticMarkup(createElement('div', null,
+      createElement(EarthSurface, { growth: 1 }), createElement(EarthSurface, { growth: 0.5 })));
+    const ids = [...markup.matchAll(/<clipPath id="([^"]+)"/g)].map(m => m[1]);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(markup.match(/fill="#c[369]/g)!.length).toBe(earthCells.length * 2);
+    expect(markup).not.toContain('stroke-dash');
   });
 });
