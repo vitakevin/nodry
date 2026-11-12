@@ -9,4 +9,10 @@ playwright-report/
 *.log
 *.tsbuildinfo
 .env*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.db-*
 
