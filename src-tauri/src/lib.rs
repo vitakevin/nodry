@@ -27,11 +27,31 @@ fn main_only(window: &WebviewWindow) -> Result<(), String> {
     }
 }
 fn show_main(app: &tauri::AppHandle) {
+    // Give main a different native window level before showing it. Two
+    // always-on-top windows can otherwise cover each other in show order.
+    if let Some(overlay) = app.get_webview_window("crack") {
+        let _ = overlay.set_always_on_top(false);
+    }
     if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_always_on_top(true);
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
+    let _ = sync_window_stack(app);
+}
+fn sync_window_stack(app: &tauri::AppHandle) -> Result<(), String> {
+    let main = app.get_webview_window("main").ok_or("主窗口不存在")?;
+    let overlay = app.get_webview_window("crack").ok_or("裂纹窗口不存在")?;
+    let main_visible = main.is_visible().map_err(|e| e.to_string())?
+        && !main.is_minimized().map_err(|e| e.to_string())?;
+    let overlay_top = !main_visible;
+    if overlay.is_always_on_top().map_err(|e| e.to_string())? != overlay_top {
+        overlay
+            .set_always_on_top(overlay_top)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 fn changed(app: &tauri::AppHandle) {
     let _ = app.emit_to("main", "data-changed", ());
@@ -199,6 +219,7 @@ fn sync_crack(app: &tauri::AppHandle, v: &Snapshot) -> Result<(), String> {
     if !app.state::<AppState>().crack_ready.load(Ordering::Acquire) {
         return Ok(());
     }
+    sync_window_stack(app)?;
     let monitor = w
         .primary_monitor()
         .map_err(|e| e.to_string())?
@@ -365,11 +386,21 @@ pub fn run() {
                 .notification()
                 .on_action(move |_| show_main(&notification_handle));
             let main = app.get_webview_window("main").ok_or("主窗口不存在")?;
+            main.set_always_on_top(true)?;
             let main_handle = main.clone();
+            let stack_handle = app.handle().clone();
             main.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = main_handle.hide();
+                }
+                if matches!(
+                    event,
+                    tauri::WindowEvent::CloseRequested { .. }
+                        | tauri::WindowEvent::Focused(_)
+                        | tauri::WindowEvent::Resized(_)
+                ) {
+                    let _ = sync_window_stack(&stack_handle);
                 }
             });
             #[cfg(target_os = "macos")]

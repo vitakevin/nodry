@@ -1,5 +1,5 @@
 {
   "productName": "别太干巴了测试版",
   "identifier": "com.vitakevin.stay-hydrated.qa",
-  "app": { "windows": [{ "label": "main", "title": "别太干巴了 · 测试构建", "width": 420, "height": 760, "minWidth": 360, "minHeight": 620, "center": true, "visible": false }] }
+  "app": { "windows": [{ "label": "main", "title": "别太干巴了 · 测试构建", "width": 420, "height": 760, "minWidth": 360, "minHeight": 620, "center": true, "alwaysOnTop": true, "visible": false }] }
 }
