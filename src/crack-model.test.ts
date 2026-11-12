@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { crackGrowth, earthCells, earthRadius, earthReveal, earthGap, earthTile, earthOpacity, fissureOpacity, type Point } from './crack-model';
+import { crackGrowth, earthCells, earthRadius, earthReveal, earthGap, earthTile, earthOpacity, earthLift, fissureOpacity, type Point } from './crack-model';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import EarthSurface from './EarthSurface';
@@ -83,6 +83,7 @@ describe('cracked earth surface', () => {
     for (const boundary of [20, 50, 80]) {
       const before = crackGrowth(boundary - 1e-7), after = crackGrowth(boundary + 1e-7);
       expect(earthRadius(before)).toBeCloseTo(earthRadius(after), 4);
+      expect(earthLift(before)).toBeCloseTo(earthLift(after), 6);
       for (const cell of earthCells) expect(earthGap(cell, before)).toBeCloseTo(earthGap(cell, after), 5);
     }
     for (const cell of earthCells) {
@@ -132,6 +133,8 @@ describe('cracked earth surface', () => {
   });
   it('clears at zero and keeps the soil translucent', () => {
     expect(earthOpacity(0)).toBe(0);
+    expect(earthLift(0)).toBe(0);
+    expect(earthLift(1)).toBe(1);
     expect(fissureOpacity(0)).toBe(0);
     expect(fissureOpacity(1)).toBeLessThanOrEqual(0.85);
     expect(fissureOpacity(1)).toBeGreaterThan(earthOpacity(1));
@@ -140,6 +143,7 @@ describe('cracked earth surface', () => {
       expect(opacity).toBeGreaterThan(0);
       expect(opacity).toBeLessThanOrEqual(0.52);
       expect(earthRadius(crackGrowth(score))).toBeGreaterThan(earthRadius(crackGrowth(score - 1)));
+      expect(earthLift(crackGrowth(score))).toBeGreaterThan(earthLift(crackGrowth(score - 1)));
     }
     expect(renderToStaticMarkup(createElement(EarthSurface, { growth: 0 }))).not.toContain('<path');
   });
@@ -147,6 +151,7 @@ describe('cracked earth surface', () => {
     for (const value of [-10, NaN, Infinity, -Infinity]) {
       expect(earthReveal(value)).toBe('');
       expect(earthOpacity(value)).toBe(0);
+      expect(earthLift(value)).toBe(0);
       expect(earthTile(earthCells[0], value)).toBe('');
       expect(earthGap(earthCells[0], value)).toBe(0);
     }

@@ -42,7 +42,7 @@ function Settings({ snapshot, runtime, onSaved, onCancel }: { snapshot: Snapshot
       </div>
       <p className="field-note">按当天工作时段提醒，最晚到19:00。</p>
       <label className="switch-row"><span><strong>登录时启动</strong><small>自动在后台开始今天的提醒</small></span><input type="checkbox" role="switch" checked={autostart} onChange={e=>setAutostart(e.target.checked)} /></label>
-      <label className="switch-row"><span><strong>屏幕干裂提醒</strong><small>右下角土地逐渐干裂，喝水后裂缝收拢消退</small></span><input type="checkbox" role="switch" checked={crack} onChange={e=>setCrack(e.target.checked)} /></label>
+      <label className="switch-row"><span><strong>屏幕干裂提醒</strong><small>右下角泥土逐渐干裂、翘边，喝水后收拢消退</small></span><input type="checkbox" role="switch" checked={crack} onChange={e=>setCrack(e.target.checked)} /></label>
     </fieldset>
     <p className="system-note">系统通知由电脑管理。未收到提醒时，请在系统设置中允许“别太干巴了”发送通知。</p>
     {error && <p id="settings-error" className="error" role="alert">{error}</p>}

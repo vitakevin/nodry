@@ -44,9 +44,9 @@ function buildCells(): EarthCell[] {
   // This pair's shared seam runs through the bottom-right corner, making the
   // first tiny revealed patch cracked too. All other sites stay well spaced.
   const sites: Point[] = [[972, 688], [988, 672]];
-  for (let tries = 0; sites.length < 84 && tries < 10000; tries++) {
+  for (let tries = 0; sites.length < 140 && tries < 10000; tries++) {
     const site: Point = [15 + random() * 970, 15 + random() * 670];
-    if (sites.every(other => distance(site, other) > 43)) sites.push(site);
+    if (sites.every(other => distance(site, other) > 34)) sites.push(site);
   }
   const palette = ['#c9a56c', '#c3a06a', '#c6a16b'];
   return sites.map((center, id) => {
@@ -73,7 +73,7 @@ function roughEdge(a: Point, b: Point): Point[] {
   let hash = 2166136261;
   for (const char of key(first) + ':' + key(last)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
   const points: Point[] = [first];
-  for (const fraction of [0.15, 0.33, 0.52, 0.73, 0.89]) {
+  for (const fraction of [0.10, 0.19, 0.30, 0.44, 0.53, 0.64, 0.78, 0.90]) {
     hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
     const offset = (((hash >>> 0) / 4294967296) - 0.5) * Math.min(13, length * 0.2);
     points.push([first[0] + (last[0] - first[0]) * fraction - (last[1] - first[1]) / length * offset,
@@ -102,10 +102,13 @@ export function earthReveal(growth: number): string {
   return path(points);
 }
 
+export const EARTH_GAP_INITIAL = 1.1;
+export const EARTH_GAP_OPENING = 4.9;
+
 export function earthGap(cell: EarthCell, growth: number): number {
   const g = clamp(growth);
   const maturity = clamp((earthRadius(g) - distance(cell.center, [1000, 700]) + 40) / 200);
-  return (1.1 * (1 - Math.exp(-500 * g)) + 14.9 * g * maturity) * cell.widthBias;
+  return (EARTH_GAP_INITIAL * (1 - Math.exp(-500 * g)) + EARTH_GAP_OPENING * g * maturity) * cell.widthBias;
 }
 
 function earthTilePoints(cell: EarthCell, growth: number, lip = 0): Point[] {
@@ -146,6 +149,10 @@ export function earthRim(cell: EarthCell, growth: number, lip: number): string {
 export function earthOpacity(growth: number): number {
   const g = clamp(growth);
   return g ? (0.32 + 0.20 * g) * (1 - Math.exp(-500 * g)) : 0;
+}
+
+export function earthLift(growth: number): number {
+  return clamp(growth) ** 0.85;
 }
 
 // Fissures stay darker than the translucent soil instead of turning pale gray.
