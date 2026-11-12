@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { native } from './bridge';
-import { crackGrowth, crackPaths, visibleCrackPath } from './crack-model';
+import { crackGrowth, crackPaths, visibleCrackShape } from './crack-model';
 
 interface CrackState { score: number }
 
@@ -47,7 +47,7 @@ export default function Crack() {
     return () => cancelAnimationFrame(frame);
   }, [score]);
 
-  const paths = crackPaths.map(p => visibleCrackPath(p, growth)).filter(Boolean);
+  const paths = crackPaths.map(p => visibleCrackShape(p, growth)).filter(Boolean);
   return <div className="crack-layer" aria-hidden="true" data-score={score} data-growth={growth}>
     <svg viewBox="0 0 1000 700" preserveAspectRatio="none">
       <g className="crack-highlight">{paths.map((d,i) => <path key={i} d={d} />)}</g>
