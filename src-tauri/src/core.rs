@@ -125,34 +125,27 @@ pub fn interval_ms(score: f64) -> Option<i64> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum ReminderAction {
-    None,
-    Notify,
-    Crack,
+/// Continuous overlay state is independent of notification timing and daily flags.
+pub fn crack_score(now: i64, work_time: (i64, i64), score: f64, enabled: bool) -> f64 {
+    let (start, end) = work_time;
+    if !enabled || now < start || now >= end || !score.is_finite() {
+        return 0.0;
+    }
+    score.clamp(0.0, 100.0)
 }
 
-/// The first daily crack is a threshold event, independent of the notification timer.
-/// A crack attempt counts as a reminder, so the caller advances the usual anchor.
-pub fn reminder_action(
+pub fn notification_due(
     now: i64,
     work_time: (i64, i64),
     score: f64,
     next_due: Option<i64>,
-    crack_available: bool,
-) -> ReminderAction {
+) -> bool {
     let (start, end) = work_time;
-    if now < start || now >= end || !score.is_finite() || score <= 0.0 {
-        return ReminderAction::None;
-    }
-    if score >= 100.0 && crack_available {
-        return ReminderAction::Crack;
-    }
-    if next_due.is_some_and(|due| due <= now) {
-        ReminderAction::Notify
-    } else {
-        ReminderAction::None
-    }
+    now >= start
+        && now < end
+        && score.is_finite()
+        && score > 0.0
+        && next_due.is_some_and(|due| due <= now)
 }
 
 /// Earliest eligible alert, accounting for FUTURE band transitions.
@@ -209,54 +202,49 @@ mod tests {
     }
 
     #[test]
-    fn first_crack_does_not_wait_for_notification() {
-        let now = 2 * HOUR;
-        assert_eq!(
-            reminder_action(now, (0, 8 * HOUR), 100.0, Some(now + HOUR / 4), true),
-            ReminderAction::Crack
-        );
-        // There may be no next notification before the workday ends.
-        assert_eq!(
-            reminder_action(8 * HOUR - 1, (0, 8 * HOUR), 100.0, None, true),
-            ReminderAction::Crack
-        );
+    fn continuous_crack_starts_with_fractional_scores_and_recedes() {
+        let now = HOUR;
+        for score in [
+            0.0, 0.01, 1.0, 19.99, 20.01, 49.99, 50.01, 79.99, 80.01, 100.0, 42.5, 0.0,
+        ] {
+            assert_eq!(crack_score(now, (0, 8 * HOUR), score, true), score);
+        }
+        assert_eq!(crack_score(now, (0, 8 * HOUR), 120.0, true), 100.0);
+        assert_eq!(crack_score(now, (0, 8 * HOUR), -1.0, true), 0.0);
     }
 
     #[test]
-    fn crack_respects_work_time_switch_and_daily_deduplication() {
-        let now = 2 * HOUR;
-        for (time, score, available) in [
+    fn continuous_crack_respects_switch_work_time_and_invalid_scores() {
+        for (now, score, enabled) in [
             (-1, 100.0, true),
             (8 * HOUR, 100.0, true),
-            (now, 99.999, true),
-            (now, 0.0, true),
-            (now, 100.0, false),
+            (HOUR, 100.0, false),
+            (HOUR, f64::NAN, true),
+            (HOUR, f64::INFINITY, true),
         ] {
-            assert_eq!(
-                reminder_action(time, (0, 8 * HOUR), score, None, available),
-                ReminderAction::None
-            );
+            assert_eq!(crack_score(now, (0, 8 * HOUR), score, enabled), 0.0);
         }
-        assert_eq!(
-            reminder_action(now, (0, 8 * HOUR), 100.0, Some(now), false),
-            ReminderAction::Notify
-        );
     }
 
     #[test]
-    fn ordinary_reminders_wait_fifteen_minutes_after_first_crack() {
-        let cracked_at = 2 * HOUR;
-        for (now, expected) in [
-            (cracked_at, ReminderAction::None),
-            (cracked_at + HOUR / 4 - 1, ReminderAction::None),
-            (cracked_at + HOUR / 4, ReminderAction::Notify),
-        ] {
-            let due = next_reminder(now, 0, 8 * HOUR, 210000, 0, Some(cracked_at));
-            assert_eq!(
-                reminder_action(now, (0, 8 * HOUR), 100.0, due, false),
-                expected
-            );
-        }
+    fn continuous_crack_does_not_accelerate_normal_notifications() {
+        let now = 2 * HOUR;
+        assert_eq!(crack_score(now, (0, 8 * HOUR), 100.0, true), 100.0);
+        assert!(!notification_due(now, (0, 8 * HOUR), 100.0, None));
+        assert!(!notification_due(
+            now,
+            (0, 8 * HOUR),
+            100.0,
+            Some(now + HOUR / 4)
+        ));
+        assert!(notification_due(
+            now + HOUR / 4,
+            (0, 8 * HOUR),
+            100.0,
+            Some(now + HOUR / 4)
+        ));
+        assert!(!notification_due(8 * HOUR, (0, 8 * HOUR), 100.0, Some(now)));
+        assert!(!notification_due(now, (0, 8 * HOUR), 0.0, Some(now)));
     }
 
     #[test]

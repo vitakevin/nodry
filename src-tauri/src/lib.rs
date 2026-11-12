@@ -4,7 +4,10 @@ mod store;
 use chrono::Local;
 use core::Config;
 use serde::Serialize;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use store::{Snapshot, Store};
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
@@ -12,6 +15,7 @@ use tauri_plugin_notification::NotificationExt;
 
 struct AppState {
     store: Mutex<Store>,
+    crack_ready: AtomicBool,
     background_error: Mutex<Option<String>>,
 }
 
@@ -131,9 +135,6 @@ fn record_water(
     let now = Local::now().timestamp_millis();
     s.record(&id, &amount, now)?;
     let snapshot = s.snapshot(now)?;
-    if let Some(w) = app.get_webview_window("crack") {
-        let _ = w.hide();
-    }
     drop(s);
     changed(&app);
     Ok(snapshot)
@@ -151,34 +152,67 @@ fn skip_reminder(
     s.skip(now)?;
     let snapshot = s.snapshot(now)?;
     drop(s);
-    if let Some(w) = app.get_webview_window("crack") {
-        let _ = w.hide();
-    }
     changed(&app);
     Ok(snapshot)
 }
 
-fn play_crack(app: &tauri::AppHandle) -> Result<(), String> {
+#[derive(Clone, Serialize)]
+struct CrackState {
+    score: f64,
+}
+
+fn crack_state(v: &Snapshot) -> CrackState {
+    CrackState {
+        score: core::crack_score(
+            v.now,
+            (v.start, v.end),
+            v.score,
+            v.config.as_ref().is_some_and(|c| c.crack_enabled),
+        ),
+    }
+}
+
+#[tauri::command]
+fn get_crack_state(window: WebviewWindow, state: State<AppState>) -> Result<CrackState, String> {
+    if window.label() != "crack" {
+        return Err("此接口仅供裂纹窗口使用".into());
+    }
+    let snapshot = store_lock(&state)?.snapshot(Local::now().timestamp_millis())?;
+    state.crack_ready.store(true, Ordering::Release);
+    Ok(crack_state(&snapshot))
+}
+
+fn sync_crack(app: &tauri::AppHandle, v: &Snapshot) -> Result<(), String> {
     let w = app.get_webview_window("crack").ok_or("裂纹窗口不可用")?;
-    let main = app.get_webview_window("main").ok_or("主窗口不可用")?;
-    let monitor = main
+    // Within work time a zero-score window stays transparent, allowing a smooth
+    // retreat all the way to zero. Turning off the effect or leaving work hides it.
+    let active =
+        v.config.as_ref().is_some_and(|c| c.crack_enabled) && v.now >= v.start && v.now < v.end;
+    w.emit("crack-state", crack_state(v))
+        .map_err(|e| e.to_string())?;
+    if !active {
+        if w.is_visible().map_err(|e| e.to_string())? {
+            w.hide().map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
+    if !app.state::<AppState>().crack_ready.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    let monitor = w
         .primary_monitor()
         .map_err(|e| e.to_string())?
         .ok_or("无法读取主显示器")?;
-    w.set_position(*monitor.position())
-        .map_err(|e| e.to_string())?;
-    w.set_size(*monitor.size()).map_err(|e| e.to_string())?;
-    w.set_ignore_cursor_events(true)
-        .map_err(|e| e.to_string())?;
-    w.show().map_err(|e| e.to_string())?;
-    w.emit("crack-play", ()).map_err(|e| e.to_string())?;
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(5));
-        if let Some(w) = handle.get_webview_window("crack") {
-            let _ = w.hide();
-        }
-    });
+    if w.outer_position().map_err(|e| e.to_string())? != *monitor.position() {
+        w.set_position(*monitor.position())
+            .map_err(|e| e.to_string())?;
+    }
+    if w.inner_size().map_err(|e| e.to_string())? != *monitor.size() {
+        w.set_size(*monitor.size()).map_err(|e| e.to_string())?;
+    }
+    if !w.is_visible().map_err(|e| e.to_string())? {
+        w.show().map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -187,40 +221,27 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
     let s = store_lock(&state)?;
     let now = Local::now().timestamp_millis();
     let v = s.snapshot(now)?;
-    if v.completed {
-        return Ok(());
+    let notify =
+        !v.completed && core::notification_due(now, (v.start, v.end), v.score, v.next_reminder_at);
+    if notify {
+        // Claim ordinary reminders before OS delivery. Continuous cracks never
+        // write daily claims or advance this anchor.
+        s.mark_reminder(now, false)?;
     }
-    let day = s.state(&v.local_date)?;
-    let action = core::reminder_action(
-        now,
-        (v.start, v.end),
-        v.score,
-        v.next_reminder_at,
-        v.config.as_ref().is_some_and(|c| c.crack_enabled) && !day.cracked,
-    );
-    if action == core::ReminderAction::None {
-        return Ok(());
-    }
-    let should_crack = action == core::ReminderAction::Crack;
-    // Persist the claim before OS delivery. A crash never replays a burst on restart.
-    // OS banner delivery itself is best-effort, not an exactly-once guarantee.
-    s.mark_reminder(now, should_crack)?;
     drop(s);
-    let crack_result = if should_crack {
-        play_crack(app)
-    } else {
-        Err(String::new())
-    };
-    let cracked = should_crack && crack_result.is_ok();
-    // Keep the daily claim even if the overlay fails. Fall back to the normal
-    // reminder cadence rather than retrying the threshold effect every second.
+    let overlay_result = sync_crack(app, &v);
+    if !notify {
+        overlay_result?;
+        if let Ok(mut status) = state.background_error.lock() {
+            *status = None;
+        }
+        return Ok(());
+    }
     let foreground = app
         .get_webview_window("main")
         .is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));
-    let mut result = Ok(());
-    if !cracked && !foreground {
-        result = app
-            .notification()
+    let notification_result = if !foreground {
+        app.notification()
             .builder()
             .title(if cfg!(feature = "qa") {
                 "别太干巴了 · 测试提醒"
@@ -233,15 +254,16 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
                 format_ml(v.suggested_units)
             ))
             .show()
-            .map_err(|e| format!("系统通知发送失败：{e}。可通过菜单栏打开应用记录。"));
-    }
-    if result.is_ok() {
-        if let Ok(mut status) = state.background_error.lock() {
-            *status = None;
-        }
-    }
+            .map_err(|e| format!("系统通知发送失败：{e}。可通过菜单栏打开应用记录。"))
+    } else {
+        Ok(())
+    };
     changed(app);
-    result
+    overlay_result.and(notification_result)?;
+    if let Ok(mut status) = state.background_error.lock() {
+        *status = None;
+    }
+    Ok(())
 }
 
 fn format_ml(units: i64) -> String {
@@ -261,6 +283,7 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
+            get_crack_state,
             get_runtime_info,
             save_config,
             record_water,
@@ -279,6 +302,7 @@ pub fn run() {
             let configured = store.config().map_err(std::io::Error::other)?.is_some();
             app.manage(AppState {
                 store: Mutex::new(store),
+                crack_ready: AtomicBool::new(false),
                 background_error: Mutex::new(None),
             });
 

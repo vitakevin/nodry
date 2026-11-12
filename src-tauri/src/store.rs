@@ -11,6 +11,8 @@ pub struct Store {
 #[derive(Default, Clone, Debug)]
 pub struct DayState {
     pub anchor: Option<i64>,
+    // Read only in upgrade tests; the legacy column no longer limits the effect.
+    #[cfg(test)]
     pub cracked: bool,
     pub active: bool,
 }
@@ -101,6 +103,7 @@ impl Store {
                 |r| {
                     Ok(DayState {
                         anchor: r.get(0)?,
+                        #[cfg(test)]
                         cracked: r.get(1)?,
                         active: r.get(2)?,
                     })
@@ -246,29 +249,31 @@ mod tests {
     }
 
     #[test]
-    fn late_settings_save_allows_immediate_crack_before_cutoff() {
+    fn continuous_crack_ignores_old_daily_claims_and_does_not_move_anchor() {
         let mut s = store();
-        let now = Local
-            .with_ymd_and_hms(2026, 11, 11, 17, 55, 59)
-            .earliest()
-            .unwrap()
-            .timestamp_millis();
-        let mut c = config();
-        c.end_time = "18:00".into();
-        s.save_config(&c, now).unwrap();
-        let v = s.snapshot(now).unwrap();
-        assert_eq!(v.score, 100.0);
-        assert_eq!(v.next_reminder_at, None);
+        let t = now();
+        s.save_config(&config(), t).unwrap();
+        // A v0.1.1 daily claim must not suppress the new continuous effect.
+        s.mark_reminder(t, true).unwrap();
+        let before = s.state(&local_day(t).unwrap()).unwrap();
+        let v = s.snapshot(t + 1000).unwrap();
         assert_eq!(
-            core::reminder_action(now, (v.start, v.end), v.score, v.next_reminder_at, true),
-            core::ReminderAction::Crack
+            core::crack_score(v.now, (v.start, v.end), v.score, true),
+            100.0
         );
-        s.mark_reminder(now, true).unwrap();
-        let state = s.state(&v.local_date).unwrap();
-        assert!(state.cracked);
+        assert_eq!(s.state(&v.local_date).unwrap().anchor, before.anchor);
+        s.record("repair", "300", t + 1000).unwrap();
+        let v = s.snapshot(t + 1000).unwrap();
+        let reduced = core::crack_score(v.now, (v.start, v.end), v.score, true);
+        assert!(reduced > 0.0 && reduced < 100.0);
+        s.skip(t + 2000).unwrap();
+        let v = s.snapshot(t + 2000).unwrap();
+        assert!(core::crack_score(v.now, (v.start, v.end), v.score, true) > 0.0);
+        s.record("clear", "1000", t + 3000).unwrap();
+        let v = s.snapshot(t + 3000).unwrap();
         assert_eq!(
-            core::reminder_action(now + 1000, (v.start, v.end), v.score, None, !state.cracked),
-            core::ReminderAction::None
+            core::crack_score(v.now, (v.start, v.end), v.score, true),
+            0.0
         );
     }
     #[test]
